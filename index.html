@@ -1,0 +1,250 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公众号Markdown排版工具</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: "Microsoft YaHei", PingFang SC, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .panel {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .panel h2 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      color: #222;
+    }
+    textarea {
+      width: 100%;
+      height: 70vh;
+      padding: 12px;
+      font-size: 16px;
+      line-height: 1.6;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      resize: none;
+    }
+    .preview-wrap {
+      height: 70vh;
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .btn-group {
+      margin-top:12px;
+      display: flex;
+      gap:10px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      background: #3671e9;
+      color: white;
+      cursor: pointer;
+      font-size:14px;
+    }
+    button:hover {
+      background: #2559c7;
+    }
+    button.secondary {
+      background:#888;
+    }
+    .status-line {
+      margin-top:10px;
+      font-size:14px;
+      color:#666;
+    }
+    /* ========== 预览渲染样式 ========== */
+    .preview-content {
+      font-size:16px;
+      line-height:1.8;
+      color:#3a3a3a;
+    }
+    .preview-content h1 {
+      border-left:5px solid #f83929;
+      padding-left:10px;
+      margin:24px 0 12px;
+      font-size:22px;
+      color:#222;
+    }
+    .preview-content h2 {
+      border-left:5px solid #f83929;
+      padding-left:10px;
+      margin:24px 0 12px;
+      font-size:20px;
+      color:#222;
+    }
+    .preview-content h3 {
+      border-left:5px solid #f83929;
+      padding-left:10px;
+      margin:24px 0 12px;
+      font-size:18px;
+      color:#222;
+    }
+    .preview-content blockquote {
+      background-color:#fff5e3;
+      border-left:3px solid #ffb11b;
+      padding:10px 10px 10px 20px;
+      margin:16px 0;
+    }
+    .preview-content hr {
+      border: none;
+      border-top:1px solid #f9bf45;
+      margin:16px 0;
+    }
+    .preview-content strong {
+      font-weight:bold;
+    }
+    .preview-content .text-red {
+      color:#fa0000;
+      font-weight:bold;
+      font-style:italic;
+    }
+    .preview-content p {
+      margin:8px 0;
+    }
+    .preview-content .footnote-area {
+      margin-top:30px;
+      border-top:1px solid #eee;
+      padding-top:12px;
+    }
+    .preview-content .footnote-item {
+      font-size:14px;
+      line-height:1.7;
+      color:#444;
+      margin:4px 0;
+    }
+    .preview-content sup {
+      font-size:0.8em;
+      color:#dd912d;
+      cursor:pointer;
+    }
+    @media (max-width:768px){
+      .container{grid-template-columns:1fr;}
+      textarea,.preview-wrap{height:50vh;}
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="panel">
+    <h2>Markdown 输入区</h2>
+    <textarea id="inputMd" placeholder="在此粘贴Markdown内容..."></textarea>
+    <div class="btn-group">
+      <button id="btnCopyMd">复制Markdown</button>
+      <button id="btnCopyHtml">复制公众号富文本</button>
+      <button class="secondary" id="btnClear">清空</button>
+    </div>
+    <div class="status-line">
+      <span id="wordCount">字数：0</span>｜<span id="saveStatus">已自动保存</span>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>实时预览（公众号样式）</h2>
+    <div class="preview-wrap">
+      <div id="previewDom" class="preview-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const input = document.getElementById('inputMd');
+const preview = document.getElementById('previewDom');
+const wordCountEl = document.getElementById('wordCount');
+const saveStatusEl = document.getElementById('saveStatus');
+
+// Markdown解析器，自动提取脚注并在文末汇总
+function parseMarkdown(md) {
+  // 提取所有脚注定义 [^id]: content
+  const footnoteMap = {};
+  const footnoteReg = /^\[\^(\d+)\]:\s*(.+)$/gm;
+  let match;
+  let cleanMd = md.replace(footnoteReg, (full, id, text) => {
+    footnoteMap[id] = text;
+    return '';
+  });
+
+  // 基础语法替换
+  let html = cleanMd
+    .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
+    .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<span class="text-red">$1</span>')
+    .replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/---/g, '<hr>')
+    .replace(/\[\^(\d+)\]/g, '<sup>[$1]</sup>')
+    .replace(/\n/g, '<br>');
+
+  // 拼接脚注区域
+  if(Object.keys(footnoteMap).length > 0){
+    html += '<div class="footnote-area"><strong>参考资料</strong>';
+    for(const fid in footnoteMap){
+      html += `<div class="footnote-item">[${fid}] ${footnoteMap[fid]}</div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+function render() {
+  const raw = input.value;
+  localStorage.setItem('articleDraft', raw);
+  saveStatusEl.textContent = "已自动保存";
+  wordCountEl.textContent = `字数：${raw.replace(/\s/g,'').length}`;
+  preview.innerHTML = parseMarkdown(raw);
+}
+
+// 读取本地草稿
+window.onload = ()=>{
+  const saved = localStorage.getItem('articleDraft');
+  if(saved) input.value = saved;
+  render();
+}
+input.addEventListener('input', ()=>{
+  render();
+});
+
+// 复制Markdown
+document.getElementById('btnCopyMd').onclick = async ()=>{
+  await navigator.clipboard.writeText(input.value);
+  alert("Markdown已复制");
+}
+// 复制公众号富文本
+document.getElementById('btnCopyHtml').onclick = async ()=>{
+  await navigator.clipboard.writeText(preview.innerHTML);
+  alert("公众号富文本已复制，直接粘贴公众号后台");
+}
+// 清空按钮
+document.getElementById('btnClear').onclick = ()=>{
+  if(confirm("确定清空全部内容？草稿也会删除")){
+    input.value = '';
+    localStorage.removeItem('articleDraft');
+    render();
+  }
+}
+</script>
+</body>
+</html>
