@@ -93,7 +93,12 @@ summary{font-size:12px;color:var(--sub);cursor:pointer}
         <div class="mi"><div class="k">正文颜色</div><div class="v"><span class="dot" id="mCd"></span><span id="mC">-</span></div></div>
         <div class="mi"><div class="k">主题色</div><div class="v"><span class="dot" id="mAd"></span><span id="mA">-</span></div></div>
       </div>
-      <button class="b-ghost bs" style="margin-top:9px" onclick="toggleTune()">⚙️ 微调样式</button>
+      <select id="samples" style="display:none;margin-top:9px;font-size:12px" onchange="switchSample()" title="切换已导入的样板文章"></select>
+      <div class="row" style="margin-top:9px">
+        <button class="b-ghost bs" onclick="resetTheme()">🔄 换一篇样板</button>
+        <button class="b-ghost bs" onclick="reloadSame()">↻ 重新解析</button>
+      </div>
+      <button class="b-ghost bs" style="margin-top:7px;width:100%" onclick="toggleTune()">⚙️ 微调样式</button>
       <div id="tune" style="display:none;margin-top:10px">
         <div class="grid2">
           <div><label class="k" style="font-size:11px;color:var(--sub)">主题色</label><input type="color" id="tA"></div>
@@ -135,6 +140,15 @@ summary{font-size:12px;color:var(--sub);cursor:pointer}
   </div>
 </div>
 </main>
+
+<div id="modal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:99;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:18px;width:660px;max-width:92vw">
+    <div style="font-size:14px;font-weight:600;margin-bottom:6px">手动复制</div>
+    <div style="font-size:12px;color:#86909c;margin-bottom:10px;line-height:1.6">下面内容已全选，按 <b>Ctrl+C</b>（Mac ⌘+C）复制，再到公众号后台编辑器 <b>Ctrl+V</b> 粘贴，样式会一起过去。</div>
+    <div id="mholder" contenteditable="true" style="border:1px solid #e5e6eb;border-radius:8px;padding:12px;max-height:52vh;overflow:auto;font-size:14px"></div>
+    <div style="text-align:right;margin-top:10px"><button class="b-ghost" onclick="document.getElementById('modal').style.display='none'">关闭</button></div>
+  </div>
+</div>
 
 <script>
 /* ============ 状态 ============ */
@@ -410,7 +424,9 @@ function md2html(src){
 /* ============ 应用样式 ============ */
 function ss(d,drop){
   if(!d)return '';var o=[];
-  for(var k in d){if(!d[k]||(drop&&drop.indexOf(k)>=0))continue;o.push(kebab(k)+':'+String(d[k]).replace(/"/g,"'"))}
+  for(var k in d){if(!d[k]||(drop&&drop.indexOf(k)>=0))continue;
+    var v=String(d[k]).replace(/"/g,"'").replace(/(-?\d+\.\d{2})\d+(px|em|rem)/g,'$1$2');
+    o.push(kebab(k)+':'+v)}
   return o.join(';');
 }
 function resolve(t){
@@ -512,21 +528,75 @@ function page(t,body,tweak,title){
 }
 
 /* ============ 交互 ============ */
-function useHtml(html,from){
-  try{
-    THEME=extractTheme(html);
-    $('meta').style.display='block';
-    $('mTitle').textContent=THEME.meta.title||'(未识别)';
-    $('mSize').textContent=THEME.page.bodySize;
-    $('mLh').textContent=THEME.styles.p.lineHeight||'-';
-    $('mC').textContent=THEME.page.bodyColor;$('mCd').style.background=THEME.page.bodyColor;
-    $('mA').textContent=THEME.page.accent;$('mAd').style.background=THEME.page.accent;
-    $('tA').value=toHex(THEME.page.accent,'#07c160');
-    $('tB').value=toHex(THEME.page.background,'#ffffff');
-    st('✅ 样式已提取：'+THEME.meta.title+'（来源：'+from+'）','ok');
-    $('barInfo').textContent='样板：'+(THEME.meta.title||'').slice(0,24);
-    if($('md').value.trim())go();
-  }catch(e){st('❌ 解析失败：'+e.message,'err')}
+var SAMPLES=[];           // 已导入的样板缓存：{name, html}
+var CUR='';               // 当前样板名
+function renderSamples(){
+  var sel=$('samples');if(!sel)return;
+  sel.innerHTML=SAMPLES.map(function(s,i){
+    return '<option value="'+i+'"'+(s.name===CUR?' selected':'')+'>'+esc(s.name)+'</option>';
+  }).join('');
+  sel.style.display=SAMPLES.length>1?'block':'none';
+}
+function addSample(name,html){
+  var hit=false;
+  SAMPLES.forEach(function(s){if(s.name===name){s.html=html;hit=true}});
+  if(!hit)SAMPLES.push({name:name,html:html});
+  renderSamples();
+}
+function useHtml(html,from,noAdd){
+  if(!html||html.length<500){st('❌ 内容太短（'+html.length+' 字符），请导入完整的网页源码','err');return}
+  if(html.indexOf('<html')<0&&html.indexOf('<!DOCTYPE')<0&&html.indexOf('<div')<0){
+    st('❌ 这不像网页源码（没有 <html>）。请先按 Ctrl+U 复制文章页面源码','err');return;
+  }
+  var prev=THEME?THEME.meta.title:null;
+  st('正在解析样式…','info');
+  setTimeout(function(){
+    try{
+      var t=extractTheme(html);
+      THEME=t;CUR=from;
+      if(!noAdd)addSample(from,html);
+      renderSamples();
+      $('meta').style.display='block';
+      $('mTitle').textContent=t.meta.title||'(未识别)';
+      $('mSize').textContent=t.page.bodySize;
+      $('mLh').textContent=t.styles.p.lineHeight||'-';
+      $('mC').textContent=t.page.bodyColor;$('mCd').style.background=t.page.bodyColor;
+      $('mA').textContent=t.page.accent;$('mAd').style.background=t.page.accent;
+      $('tA').value=toHex(t.page.accent,'#07c160');
+      $('tB').value=toHex(t.page.background,'#ffffff');
+      $('barInfo').textContent='样板：'+(t.meta.title||from).slice(0,26);
+      var msg=(prev&&prev!==t.meta.title)
+        ? '✅ 样板已切换：'+(t.meta.title||from)+'（原：'+prev+'）'
+        : '✅ 样式已提取：'+(t.meta.title||from);
+      var extra=SAMPLES.length>1?('　｜　已导入 '+SAMPLES.length+' 篇'):'';
+      if($('md').value.trim()){
+        go(true);
+        st(msg+extra+'，已按新样式重新生成','ok');
+      }else{
+        st(msg+extra+'　｜　现在贴入你的 Markdown','ok');
+      }
+    }catch(e){st('❌ 解析失败：'+e.message,'err')}
+  },30);
+}
+function resetTheme(){
+  THEME=null;CUR='';LAST={html:'',frag:''};
+  $('meta').style.display='none';
+  $('phone').style.display='none';
+  $('empty').style.display='flex';
+  $('fr').srcdoc='';
+  $('barInfo').textContent='预览';
+  st('已清除当前样板，请重新导入一篇样板文章','info');
+}
+function switchSample(){
+  var i=+$('samples').value,s=SAMPLES[i];
+  if(!s)return;
+  useHtml(s.html,s.name,true);
+}
+function reloadSame(){
+  var s=null;
+  SAMPLES.forEach(function(x){if(x.name===CUR)s=x});
+  if(!s){st('当前没有已导入的样板，请先导入','err');return}
+  useHtml(s.html,s.name,true);
 }
 function toHex(c,f){
   if(!c)return f;
@@ -565,6 +635,7 @@ $('file').addEventListener('change',function(){
   var r=new FileReader();
   r.onload=function(){useHtml(r.result,f.name)};
   r.readAsText(f);
+  this.value='';           // 关键：清空后才能重复选择同一个文件
 });
 ['dragenter','dragover'].forEach(function(e){
   $('drop').addEventListener(e,function(ev){ev.preventDefault();$('drop').classList.add('over')});
@@ -590,7 +661,7 @@ function tweak(){
   if($('tI').value)t.indent=+$('tI').value;
   return t;
 }
-function go(){
+function go(quiet){
   if(!THEME){st('请先导入样板文章（第 1 步）','err');return}
   var md=$('md').value.trim();
   if(!md){st('请先粘贴 Markdown（第 2 步）','err');return}
@@ -601,7 +672,7 @@ function go(){
     LAST.html=page(THEME,body,tweak(),title);
     $('empty').style.display='none';$('phone').style.display='block';
     $('fr').srcdoc=LAST.html;
-    st('✅ 生成完成，右侧即成品效果','ok');
+    if(!quiet)st('✅ 生成完成，右侧即成品效果','ok');
   }catch(e){st('❌ 生成失败：'+e.message,'err')}
 }
 function dl(){
@@ -610,20 +681,72 @@ function dl(){
   a.href=URL.createObjectURL(new Blob([LAST.html],{type:'text/html'}));
   a.download='排版成品.html';a.click();
 }
-function copyFrag(){
-  if(!LAST.frag){st('请先生成','err');return}
-  var plain=document.createElement('div');plain.innerHTML=LAST.frag;
+/* 富文本复制：三层保障，确保内容和样式一起进剪贴板 */
+function fragHtml(){
+  var cs=ss(THEME&&THEME.container&&THEME.container.style?THEME.container.style:{});
+  return '<div id="js_content" style="'+cs+'">'+LAST.frag+'</div>';
+}
+/* 兜底：用 contenteditable + execCommand 复制富文本（file:// 下也能工作） */
+function legacyCopy(html){
+  var holder=document.createElement('div');
+  holder.setAttribute('contenteditable','true');
+  holder.innerHTML=html;
+  holder.style.cssText='position:fixed;left:-99999px;top:0;width:677px;background:#fff;';
+  document.body.appendChild(holder);
+  var sel=window.getSelection(),range=document.createRange(),ok=false;
   try{
-    var item=new ClipboardItem({'text/html':new Blob([LAST.frag],{type:'text/html'}),
-      'text/plain':new Blob([plain.textContent],{type:'text/plain'})});
-    navigator.clipboard.write([item]).then(function(){
-      st('✅ 已复制（带格式）→ 打开公众号后台编辑器 Ctrl+V 粘贴即可','ok');
-    },function(){plainFallback()});
-  }catch(e){plainFallback()}
-  function plainFallback(){
-    navigator.clipboard.writeText(LAST.frag).then(function(){st('✅ 已复制，粘贴到公众号编辑器试试','ok')},
-      function(){st('浏览器拒绝剪贴板权限，请改用「下载 HTML」','err')});
+    range.selectNodeContents(holder);
+    sel.removeAllRanges();sel.addRange(range);
+    holder.focus();
+    ok=document.execCommand('copy');
+  }catch(e){ok=false}
+  try{sel.removeAllRanges()}catch(e){}
+  if(holder.parentNode)holder.parentNode.removeChild(holder);
+  return ok;
+}
+function openManual(html){
+  $('mholder').innerHTML=html;
+  $('modal').style.display='flex';
+  setTimeout(function(){
+    var h=$('mholder'),sel=window.getSelection(),r=document.createRange();
+    try{r.selectNodeContents(h);sel.removeAllRanges();sel.addRange(r);h.focus()}catch(e){}
+  },60);
+}
+function copyFrag(){
+  if(!LAST.frag){st('请先点「生成同款排版」','err');return}
+  st('正在复制…','info');
+  var html=fragHtml();
+  var plain=document.createElement('div');plain.innerHTML=html;
+  function okMsg(way){
+    var n=(plain.textContent||'').length;
+    st('✅ 已复制（'+way+'，共 '+n+' 字，样式一并复制）→ 打开公众号后台编辑器，Ctrl+V 粘贴','ok');
   }
+  function fallback1(){
+    setTimeout(function(){
+      var ok=legacyCopy(html);
+      if(ok){okMsg('兼容模式');return}
+      openManual(html);
+      st('⚠️ 浏览器拦截了自动复制 → 弹窗里已全选内容，按 Ctrl+C（Mac ⌘+C）复制后粘贴到公众号','err');
+    },60);
+  }
+  var api=(navigator.clipboard&&navigator.clipboard.write);
+  if(api&&typeof window.ClipboardItem==='function'){
+    try{
+      var item=new ClipboardItem({
+        'text/html':new Blob([html],{type:'text/html'}),
+        'text/plain':new Blob([plain.textContent||''],{type:'text/plain'})
+      });
+      navigator.clipboard.write([item]).then(function(){okMsg('富文本')},function(){fallback1()});
+      return;
+    }catch(e){/* 落到兼容模式 */}
+  }
+  if(api){
+    try{
+      navigator.clipboard.writeText(html).then(function(){okMsg('文本')},function(){fallback1()});
+      return;
+    }catch(e){}
+  }
+  fallback1();
 }
 function png(){
   if(!LAST.html){st('请先生成','err');return}
